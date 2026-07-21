@@ -1,0 +1,89 @@
+name: "📦 Github CI - Automatic weekly release"
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check_updates:
+    name: ✅ Check update commits
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      one_has:        ${{ steps.check_commits.outputs.one_has }}
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: ✅ Check unreleased commits
+        id: check_commits
+        uses: boul2gom/actions/unreleased-commits@0aedeaa11b966fd08ab4d756c33ef76a1638ddac # v1.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          exclude_patterns: "[skip ci]"
+
+  create_release:
+    name: 🔖 Create a new release
+    needs: [check_updates]
+    if: ${{ needs.check_updates.outputs.one_has == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 🛡️ Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+          
+      - name: 🔐 Generate ephemeral token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ secrets.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_KEY }}
+  
+      - name: 📁 Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🔐 Import GPG Key and setup Git
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          trust_level: 5
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_tag_gpgsign: true
+          git_config_global: true
+          git_committer_name: "boul2gom-bot"
+          git_committer_email: "actions-bot@boul2gom.com"
+          
+      - name: 🏷️ Calculate next tag version
+        id: calc_tag
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag found: $LATEST_TAG"
+          
+          VERSION=${LATEST_TAG#v}          
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          NEW_PATCH=$((PATCH + 1))
+          
+          NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New generated tag: $NEW_TAG"
+          
+          echo "NEW_TAG=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 🚀 Create and Push Tag
+        run: |
+          git tag -m "${{ steps.calc_tag.outputs.NEW_TAG }}" "${{ steps.calc_tag.outputs.NEW_TAG }}"
+          git push origin "${{ steps.calc_tag.outputs.NEW_TAG }}"
