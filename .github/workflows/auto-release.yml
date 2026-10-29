@@ -23,7 +23,7 @@ jobs:
 
       - name: ✅ Check unreleased commits
         id: check_commits
-        uses: boul2gom/actions/unreleased-commits@1c3bf15388596871a198fa97692b757cae88af60 # v1.0.11
+        uses: boul2gom/actions/unreleased-commits@aa85616fe98fc3a942de07be9d1b1fb57bbd2bdc # v1.0.12
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           exclude_patterns: "[skip ci]"
